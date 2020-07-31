@@ -34,6 +34,9 @@ namespace Emulator
             { 15, 15, 15, 15, 15, 15, 15 },
         };
 
+        private readonly int[] spsrBank =
+            new[] { -1, 32, 33, 34, 35, 36, -1 };
+
         public Registers()
         {
             Reset();
@@ -43,7 +46,7 @@ namespace Emulator
         {
             registers = new uint[37];
             PC = 0x08000000;
-            registers[31] = 0b111010011;
+            CPSR = 0b111010011;
         }
 
         private int ModeIndex => Mode switch
@@ -58,7 +61,7 @@ namespace Emulator
             _ => throw new InvalidOperationException()
         };
 
-        public uint this[int index]
+        public uint this[uint index]
         {
             get => registers[registerBankMap[index, ModeIndex]];
             set => registers[registerBankMap[index, ModeIndex]] = value;
@@ -71,6 +74,8 @@ namespace Emulator
         }
 
         public uint PC { get => registers[15]; set => registers[15] = value; }
+        public uint CPSR { get => registers[31]; set => registers[31] = value; }
+        public uint SPSR { get => registers[spsrBank[ModeIndex]]; set => registers[spsrBank[ModeIndex]] = value; }
         public bool N
         {
             get => (registers[31] & (1 << 31)) != 0;
@@ -149,5 +154,7 @@ namespace Emulator
             }
         }
         public ProcessorMode Mode { get => (ProcessorMode)((registers[31]) & 0x1F); }
+        public bool InAPrivilegedMode { get => Mode != ProcessorMode.User; }
+        public bool CurrentModeHasSPSR { get => Mode != ProcessorMode.User && Mode != ProcessorMode.System; }
     }
 }
