@@ -63,7 +63,12 @@ namespace Emulator
 
         public uint this[uint index]
         {
-            get => registers[registerBankMap[index, ModeIndex]];
+            get
+            {
+                if (index == 15)
+                    return registers[15] + 8;
+                return registers[registerBankMap[index, ModeIndex]];
+            }
             set => registers[registerBankMap[index, ModeIndex]] = value;
         }
 
