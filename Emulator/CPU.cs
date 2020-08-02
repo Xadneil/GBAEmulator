@@ -22,11 +22,7 @@ namespace Emulator
                 ExecuteArmInstruction();
         }
 
-        private void ExecuteThumbInstruction()
-        {
-            throw new NotImplementedException();
-        }
-
+        #region ARM
         private void ExecuteArmInstruction()
         {
             var instruction = Memory.Get32(PC);
@@ -40,7 +36,7 @@ namespace Emulator
             {
                 // Misc, figure A3-4
                 PC += 4;
-                throw new NotImplementedException();
+                ArmExtension(instruction);
             }
             else if ((instruction & 0x0E000090) == 0x00000010 && (instruction & 0x01900000) != 0x01000000)
             {
@@ -52,7 +48,7 @@ namespace Emulator
             {
                 // Misc, figure A3-4
                 PC += 4;
-                throw new NotImplementedException();
+                ArmExtension(instruction);
             }
             else if ((instruction & 0x0E000090) == 0x00000090)
             {
@@ -146,7 +142,219 @@ namespace Emulator
 
         private void ArmLoadStoreImmediateOffset(uint instruction)
         {
+            if (!ConditionPassed(instruction))
+                return;
 
+            var I = (instruction & (1 << 25)) != 0;
+            var P = (instruction & (1 << 24)) != 0;
+            var U = (instruction & (1 << 23)) != 0;
+            var B = (instruction & (1 << 22)) != 0;
+            var W = (instruction & (1 << 21)) != 0;
+            var L = (instruction & (1 << 20)) != 0;
+            var Rn = (instruction & (0xF << 16)) >> 16;
+            var Rd = (instruction & (0xF << 12)) >> 12;
+
+            if (!B)
+            {
+                if (L)
+                {
+                    // LDR
+                    var address = ArmLoadStoreAddress(instruction);
+                    uint data = Memory.Get32(address).RotateRight(8 * ((int)address & 0b11));
+                    if (Rd == 15)
+                    {
+                        PC = data & 0xFFFFFFFC;
+                    }
+                    else
+                    {
+                        Registers[Rd] = data;
+                    }
+                    return;
+                }
+                else
+                {
+                    // STR
+                    Memory.Set32(ArmLoadStoreAddress(instruction), Registers[Rd]);
+                    return;
+                }
+            }
+
+            throw new NotImplementedException();
+        }
+
+        private uint ArmLoadStoreAddress(uint instruction)
+        {
+            var I = (instruction & (1 << 25)) != 0;
+            var P = (instruction & (1 << 24)) != 0;
+            var U = (instruction & (1 << 23)) != 0;
+            var B = (instruction & (1 << 22)) != 0;
+            var W = (instruction & (1 << 21)) != 0;
+            var L = (instruction & (1 << 20)) != 0;
+            var Rn = (instruction & (0xF << 16)) >> 16;
+
+            if (!I && P)
+            {
+                uint address;
+                if (U)
+                {
+                    address = Registers[Rn] + (instruction & 0b111111111111);
+                }
+                else
+                {
+                    address = Registers[Rn] - (instruction & 0b111111111111);
+                }
+
+                if (W && ConditionPassed(instruction))
+                {
+                    Registers[Rn] = address;
+                }
+                return address;
+            }
+            else if (I && P && (instruction & (0xFF << 4)) == 0)
+            {
+                var Rm = instruction & 0xF;
+                uint address;
+                if (U)
+                {
+                    address = Registers[Rn] + Registers[Rm];
+                }
+                else
+                {
+                    address = Registers[Rn] - Registers[Rm];
+                }
+
+                if (W && ConditionPassed(instruction))
+                {
+                    Registers[Rn] = address;
+                }
+                return address;
+            }
+            else if (I && P && (instruction & (1 << 4)) == 0)
+            {
+                var shift_imm = (int)((instruction & (0b111111 << 7)) >> 7);
+                var shift = (instruction & (0b11 << 5)) >> 5;
+                var Rm = instruction & 0xF;
+
+                uint index;
+                switch (shift)
+                {
+                    case 0:
+                        index = Registers[Rm] << shift_imm;
+                        break;
+                    case 1:
+                        if (shift_imm == 0)
+                            index = 0;
+                        else
+                            index = Registers[Rm] >> shift_imm;
+                        break;
+                    case 2:
+                        if (shift_imm == 0)
+                        {
+                            if ((Registers[Rm] & (1 << 31)) != 0)
+                                index = 0xFFFFFFFF;
+                            else
+                                index = 0;
+                        }
+                        else
+                            // arithmetic shift right (sign extends)
+                            index = (uint)(((int)Registers[Rm]) >> shift_imm);
+                        break;
+                    case 3:
+                        if (shift_imm == 0)
+                            index = ((Registers.C ? 0u : 1) << 31) | (Registers[Rm] >> 1);
+                        else
+                            index = Registers[Rm].RotateRight(shift_imm);
+                        break;
+                    default:
+                        throw new InvalidOperationException();
+                }
+
+                uint address;
+                if (U)
+                    address = Registers[Rn] + index;
+                else
+                    address = Registers[Rn] - index;
+
+                if (W && ConditionPassed(instruction))
+                {
+                    Registers[Rn] = address;
+                }
+                return address;
+            }
+            else if (!I && !P && !W)
+            {
+                uint address = Registers[Rn];
+                if (ConditionPassed(instruction))
+                {
+                    if (U)
+                        Registers[Rn] += instruction & 0xFFF;
+                    else
+                        Registers[Rn] -= instruction & 0xFFF;
+                }
+                return address;
+            }
+            else if (I && !P && !W && (instruction & (0xFF << 4)) == 0)
+            {
+                uint address = Registers[Rn];
+                var Rm = instruction & 0xF;
+                if (ConditionPassed(instruction))
+                {
+                    if (U)
+                        Registers[Rn] += Registers[Rm];
+                    else
+                        Registers[Rn] -= Registers[Rm];
+                }
+                return address;
+            }
+            else if (I && !P && !W && (instruction & (1 << 4)) == 0)
+            {
+                var shift_imm = (int)((instruction & (0b111111 << 7)) >> 7);
+                var shift = (instruction & (0b11 << 5)) >> 5;
+                var Rm = instruction & 0xF;
+
+                uint index;
+                uint address = Registers[Rn];
+                switch (shift)
+                {
+                    case 0:
+                        index = Registers[Rm] << shift_imm;
+                        break;
+                    case 1:
+                        if (shift_imm == 0)
+                            index = 0;
+                        else
+                            index = Registers[Rm] >> shift_imm;
+                        break;
+                    case 2:
+                        if (shift_imm == 0)
+                        {
+                            if ((Registers[Rm] & (1 << 31)) != 0)
+                                index = 0xFFFFFFFF;
+                            else
+                                index = 0;
+                        }
+                        else
+                            // arithmetic shift right (sign extends)
+                            index = (uint)(((int)Registers[Rm]) >> shift_imm);
+                        break;
+                    case 3:
+                        if (shift_imm == 0)
+                            index = ((Registers.C ? 0u : 1) << 31) | (Registers[Rm] >> 1);
+                        else
+                            index = Registers[Rm].RotateRight(shift_imm);
+                        break;
+                    default:
+                        throw new InvalidOperationException();
+                }
+
+                if (U)
+                    Registers[Rn] += index;
+                else
+                    Registers[Rn] -= index;
+
+                return address;
+            }
+            throw new InvalidOperationException();
         }
 
         private void ArmDataProcessing(uint instruction)
@@ -170,7 +378,7 @@ namespace Emulator
                         else
                             throw new InvalidOperationException("Unpredicatble.");
                     }
-                    else if (S == 1)
+                    else if (S != 0)
                     {
                         Registers.N = (Registers[Rd] & (1 << 31)) != 0;
                         Registers.Z = Registers[Rd] == 0;
@@ -214,7 +422,10 @@ namespace Emulator
                     Registers[Rd] = shifter_operand;
                     if (S != 0 && Rd == 15)
                     {
-                        //TODO restore CPSR
+                        if (Registers.CurrentModeHasSPSR)
+                            Registers.CPSR = Registers.SPSR;
+                        else
+                            throw new InvalidOperationException("Unpredicatble.");
                     }
                     else if (S != 0)
                     {
@@ -246,6 +457,8 @@ namespace Emulator
 
         private void ArmControlDspExtension(uint instruction)
         {
+            if (!ConditionPassed(instruction))
+                return;
             if ((instruction & (1 << 25)) != 0)
             {
                 // move immediate to status register
@@ -307,7 +520,10 @@ namespace Emulator
                     if ((instruction & (1 << 22)) == 0)
                     {
                         // branch/exchange instruction set Thumb
-                        throw new NotImplementedException();
+                        var Rm = instruction & 0xF;
+                        Registers.Thumb = (Registers[Rm] & 1) != 0;
+                        PC = Registers[Rm] & 0xFFFFFFFE;
+                        break;
                     }
                     else
                     {
@@ -318,7 +534,7 @@ namespace Emulator
                     // branch/exchange instruction set Java
                     throw new NotImplementedException();
                 case 3:
-                    // branch and link/exchangee instruction set Thumb
+                    // branch and link/exchange instruction set Thumb
                     throw new NotImplementedException();
                 case 5:
                     // saturating add/subtract
@@ -512,6 +728,151 @@ namespace Emulator
                 return (shifter_operand, rotate_imm == 0 ? Registers.C : ((shifter_operand & 0x80000000) != 0));
             }
         }
+        #endregion
+
+        #region Thumb
+        private void ExecuteThumbInstruction()
+        {
+            var instruction = Memory.Get16(PC);
+            if ((instruction & (0b111 << 13)) == 0 && (instruction & (0b11 << 11)) != (0b11 << 11))
+            {
+                // Shift by immediate
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b111111 << 10)) == (0b000110 << 10))
+            {
+                // Add/subtract register
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b111111 << 10)) == (0b000111 << 10))
+            {
+                // Add/subtract immediate
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b111 << 13)) == (0b001 << 13))
+            {
+                // Add/subtract/compare/move immediate
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b111111 << 10)) == (0b010000 << 10))
+            {
+                // Data processing register
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b111111 << 10)) == (0b010001 << 10) && (instruction & (0b11 << 8)) != (0b11 << 8))
+            {
+                // Special data processing
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b11111111 << 8)) == (0b01000111 << 8))
+            {
+                // Branch/exchange instruction set
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b11111 << 11)) == (0b01001 << 11))
+            {
+                // Load from literal pool
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b1111 << 12)) == (0b0101 << 12))
+            {
+                // Load/store register offset
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b111 << 13)) == (0b011 << 13))
+            {
+                // Load/store word/byte immediate offset
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b1111 << 12)) == (0b1000 << 12))
+            {
+                // Load/store halfword immediate offset
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b1111 << 12)) == (0b1001 << 12))
+            {
+                // Load/store to/from stack
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b1111 << 12)) == (0b1010 << 12))
+            {
+                // Add to SP or PC
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b1111 << 12)) == (0b1011 << 12))
+            {
+                // Miscellaneous (Figure 6-2)
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b1111 << 12)) == (0b1100 << 12))
+            {
+                // Load/store multiple
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b1111 << 12)) == (0b1101 << 12))
+            {
+                // Conditional branch
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0xFFFF << 8)) == (0b11011110 << 8))
+            {
+                // Undefined instruction
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0xFFFF << 8)) == (0b11011111 << 8))
+            {
+                // Software interrupt
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b11111 << 11)) == (0b11100 << 11))
+            {
+                // Unconditional branch
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b11111 << 11)) == (0b11101 << 11))
+            {
+                // BLX suffix when bit 0 is 0 (undefined prior to ARMv5T)
+                // Undefined instruction when bit 0 is 1
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b11111 << 11)) == (0b11110 << 11))
+            {
+                // BL/BLX prefix
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b11111 << 11)) == (0b11111 << 11))
+            {
+                // BL suffix
+                PC += 2;
+                throw new NotImplementedException();
+            }
+            else
+            {
+                throw new InvalidOperationException();
+            }
+        }
+        #endregion
 
         public void Run()
         {
