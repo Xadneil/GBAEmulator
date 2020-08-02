@@ -84,8 +84,8 @@ namespace Emulator
 
         public ushort Get16(uint address)
         {
-            var byte1 = (byte)this[address];
-            var byte2 = (byte)(this[address + 1] << 8);
+            var byte1 = this[address];
+            var byte2 = this[address + 1] << 8;
             return (ushort)(byte1 + byte2);
         }
 
