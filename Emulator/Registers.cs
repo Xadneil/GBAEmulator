@@ -89,7 +89,7 @@ namespace Emulator
         }
         public bool Z
         {
-            get => (registers[31] & (1 << 30) & 1) != 0;
+            get => (registers[31] & (1 << 30)) != 0;
             set
             {
                 if (value)
@@ -100,7 +100,7 @@ namespace Emulator
         }
         public bool C
         {
-            get => (registers[31] & (1 << 29) & 1) != 0;
+            get => (registers[31] & (1 << 29)) != 0;
             set
             {
                 if (value)
@@ -111,7 +111,7 @@ namespace Emulator
         }
         public bool V
         {
-            get => (registers[31] & (1 << 28) & 1) != 0;
+            get => (registers[31] & (1 << 28)) != 0;
             set
             {
                 if (value)
@@ -122,7 +122,7 @@ namespace Emulator
         }
         public bool FIQDisable
         {
-            get => (registers[31] & (1 << 7) & 1) != 0;
+            get => (registers[31] & (1 << 7)) != 0;
             set
             {
                 if (value)
@@ -133,7 +133,7 @@ namespace Emulator
         }
         public bool IRQDisable
         {
-            get => (registers[31] & (1 << 6) & 1) != 0;
+            get => (registers[31] & (1 << 6)) != 0;
             set
             {
                 if (value)
@@ -144,7 +144,7 @@ namespace Emulator
         }
         public bool Thumb
         {
-            get => (registers[31] & (1 << 5) & 1) != 0;
+            get => (registers[31] & (1 << 5)) != 0;
             set
             {
                 if (value)
