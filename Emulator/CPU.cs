@@ -5,10 +5,12 @@ namespace Emulator
 {
     public class CPU
     {
-        public readonly Registers Registers = new Registers();
+        private readonly Registers Registers = new Registers();
         public readonly Memory Memory = new Memory();
 
-        public uint PC { get => Registers.PC; set => Registers.PC = value; }
+        private uint PC { get => Registers.PC; set => Registers.PC = value; }
+
+        private bool incrementPC = true;
 
         public CPU()
         {
@@ -29,115 +31,101 @@ namespace Emulator
             if ((instruction & 0x0E000010) == 0)
             {
                 // Data processing immediate shift
-                PC += 4;
                 ArmDataProcessing(instruction);
             }
             else if ((instruction & 0x0F900010) == 0x01000000)
             {
                 // Misc, figure A3-4
-                PC += 4;
                 ArmExtension(instruction);
             }
             else if ((instruction & 0x0E000090) == 0x00000010 && (instruction & 0x01900000) != 0x01000000)
             {
                 // Data processing register shift
-                PC += 4;
                 ArmDataProcessing(instruction);
             }
             else if ((instruction & 0x0F900090) == 0x01000010)
             {
                 // Misc, figure A3-4
-                PC += 4;
                 ArmExtension(instruction);
             }
             else if ((instruction & 0x0E000090) == 0x00000090)
             {
                 // Multiplies: A3-3, Extra load/stores A3-5
-                PC += 4;
                 throw new NotImplementedException();
             }
             else if ((instruction & 0x0E000000) == 0x02000000 && (instruction & 0x01900000) != 0x01000000)
             {
                 // Data processing immediate
-                PC += 4;
                 ArmDataProcessing(instruction);
             }
             else if ((instruction & 0x0FB00000) == 0x03000000)
             {
                 // Undefined instruction
-                PC += 4;
                 throw new NotImplementedException();
             }
             else if ((instruction & 0x0FB00000) == 0x03200000)
             {
                 // Move immediate to status register
-                PC += 4;
                 throw new NotImplementedException();
             }
             else if ((instruction & 0x0E000000) == 0x04000000)
             {
                 // Load/store immediate offset
-                PC += 4;
                 ArmLoadStoreImmediateOffset(instruction);
             }
             else if ((instruction & 0x0E000010) == 0x06000000)
             {
                 // Load/store register offset
-                PC += 4;
                 throw new NotImplementedException();
             }
             else if ((instruction & 0x0E000010) == 0x06000010)
             {
                 // Media instructions A3-2
-                PC += 4;
                 throw new NotImplementedException();
             }
             else if ((instruction & 0x0FF000F0) == 0x07F000F0)
             {
                 // Architecturally undefined
-                PC += 4;
                 throw new NotImplementedException();
             }
             else if ((instruction & 0x0E000000) == 0x08000000)
             {
                 // Load/store multiple
-                PC += 4;
                 throw new NotImplementedException();
             }
             else if ((instruction & 0x0E000000) == 0x0A000000)
             {
                 // Branch, Branch with link
-                PC += 4;
                 ArmBranch(instruction);
             }
             else if ((instruction & 0x0E000000) == 0x0C000000)
             {
                 // Coprocessor load/store, double register transfers
-                PC += 4;
                 throw new NotImplementedException();
             }
             else if ((instruction & 0x0F000010) == 0x0E000000)
             {
                 // Coprocessor data processing
-                PC += 4;
                 throw new NotImplementedException();
             }
             else if ((instruction & 0x0F000010) == 0x0E000010)
             {
                 // Coprocessor register processing
-                PC += 4;
                 throw new NotImplementedException();
             }
             else if ((instruction & 0x0F000000) == 0x0F000000)
             {
                 // Software interrupt
-                PC += 4;
                 throw new NotImplementedException();
             }
             else
             {
                 throw new InvalidOperationException($"Got instruction {instruction:X8}, it didn't fit an ISA archetype.");
             }
+            if (incrementPC)
+                PC += 4;
+            else
+                incrementPC = true;
         }
 
         private void ArmLoadStoreImmediateOffset(uint instruction)
@@ -164,6 +152,7 @@ namespace Emulator
                     if (Rd == 15)
                     {
                         PC = data & 0xFFFFFFFC;
+                        incrementPC = false;
                     }
                     else
                     {
@@ -523,6 +512,7 @@ namespace Emulator
                         var Rm = instruction & 0xF;
                         Registers.Thumb = (Registers[Rm] & 1) != 0;
                         PC = Registers[Rm] & 0xFFFFFFFE;
+                        incrementPC = false;
                         break;
                     }
                     else
@@ -557,16 +547,36 @@ namespace Emulator
                 return;
             uint L = instruction & (1 << 24);
             if (L != 0)
-                Registers.LR = PC + 4;
+                Registers.LR = PC + 8;
             var offset = (((int)(instruction & 0x00FFFFFF)) << 2);
             if ((instruction & 0x00800000) != 0)
                 offset |= 0xFF << 24; // sign extend
-            PC = (uint)(PC + offset + 4);
+            PC = (uint)(PC + offset + 8);
+            incrementPC = false;
         }
 
         private bool ConditionPassed(uint instruction)
         {
-            return true;
+            var condition = (instruction & (0xF << 28)) >> 28;
+            switch (condition)
+            {
+                case 0: return Registers.Z;
+                case 1: return !Registers.Z;
+                case 2: return Registers.C;
+                case 3: return !Registers.C;
+                case 4: return Registers.N;
+                case 5: return !Registers.N;
+                case 6: return Registers.V;
+                case 7: return !Registers.V;
+                case 8: return Registers.C && !Registers.Z;
+                case 9: return !Registers.C && Registers.Z;
+                case 10: return Registers.N == Registers.V;
+                case 11: return Registers.N != Registers.V;
+                case 12: return !Registers.Z && Registers.N == Registers.V;
+                case 13: return Registers.Z || Registers.N != Registers.V;
+                case 14: return true;
+                default: throw new InvalidOperationException();
+            }
         }
 
         private (uint, bool) ShifterOperand(uint instruction)
@@ -733,144 +743,130 @@ namespace Emulator
         #region Thumb
         private void ExecuteThumbInstruction()
         {
-            var instruction = Memory.Get16(PC);
+            uint instruction = Memory.Get16(PC);
             if ((instruction & (0b111 << 13)) == 0 && (instruction & (0b11 << 11)) != (0b11 << 11))
             {
                 // Shift by immediate
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b111111 << 10)) == (0b000110 << 10))
             {
                 // Add/subtract register
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b111111 << 10)) == (0b000111 << 10))
             {
                 // Add/subtract immediate
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b111 << 13)) == (0b001 << 13))
             {
                 // Add/subtract/compare/move immediate
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b111111 << 10)) == (0b010000 << 10))
             {
                 // Data processing register
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b111111 << 10)) == (0b010001 << 10) && (instruction & (0b11 << 8)) != (0b11 << 8))
             {
                 // Special data processing
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b11111111 << 8)) == (0b01000111 << 8))
             {
                 // Branch/exchange instruction set
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b11111 << 11)) == (0b01001 << 11))
             {
-                // Load from literal pool
-                PC += 2;
-                throw new NotImplementedException();
+                // LDR (3)
+                var Rd = (instruction & (0b111 << 8)) >> 8;
+                var immed_8 = instruction & 0xFF;
+                //TODO is this the real PC or offsetted?
+                var address = (PC & 0xFFFFFFFC) + (immed_8 * 4);
+                Registers[Rd] = Memory.Get32(address);
             }
             else if ((instruction & (0b1111 << 12)) == (0b0101 << 12))
             {
                 // Load/store register offset
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b111 << 13)) == (0b011 << 13))
             {
                 // Load/store word/byte immediate offset
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b1111 << 12)) == (0b1000 << 12))
             {
                 // Load/store halfword immediate offset
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b1111 << 12)) == (0b1001 << 12))
             {
                 // Load/store to/from stack
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b1111 << 12)) == (0b1010 << 12))
             {
                 // Add to SP or PC
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b1111 << 12)) == (0b1011 << 12))
             {
                 // Miscellaneous (Figure 6-2)
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b1111 << 12)) == (0b1100 << 12))
             {
                 // Load/store multiple
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b1111 << 12)) == (0b1101 << 12))
             {
                 // Conditional branch
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0xFFFF << 8)) == (0b11011110 << 8))
             {
                 // Undefined instruction
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0xFFFF << 8)) == (0b11011111 << 8))
             {
                 // Software interrupt
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b11111 << 11)) == (0b11100 << 11))
             {
                 // Unconditional branch
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b11111 << 11)) == (0b11101 << 11))
             {
                 // BLX suffix when bit 0 is 0 (undefined prior to ARMv5T)
                 // Undefined instruction when bit 0 is 1
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b11111 << 11)) == (0b11110 << 11))
             {
                 // BL/BLX prefix
-                PC += 2;
                 throw new NotImplementedException();
             }
             else if ((instruction & (0b11111 << 11)) == (0b11111 << 11))
             {
                 // BL suffix
-                PC += 2;
                 throw new NotImplementedException();
             }
             else
             {
                 throw new InvalidOperationException();
             }
+            if (incrementPC)
+                PC += 2;
+            else
+                incrementPC = true;
         }
         #endregion
 
