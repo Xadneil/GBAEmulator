@@ -10,6 +10,7 @@ namespace Emulator
         private readonly byte[] bios = new byte[16 * 1024];
         private readonly byte[] wramBoard = new byte[256 * 1024];
         private readonly byte[] wramChip = new byte[32 * 1024];
+        private readonly byte[] ioRegisters = new byte[0x400];
 
         private readonly byte[] palette = new byte[1 * 1024];
         private readonly byte[] vram = new byte[96 * 1024];
@@ -26,7 +27,8 @@ namespace Emulator
                     return wramBoard[address - 0x02000000];
                 if (address >= 0x03000000 && address <= 0x03007FFF)
                     return wramChip[address - 0x03000000];
-                // I/O
+                if (address >= 0x04000000 && address <= 0x040003FE)
+                    return ioRegisters[address - 0x04000000];
                 if (address >= 0x05000000 && address <= 0x050003FF)
                     return palette[address - 0x05000000];
                 if (address >= 0x06000000 && address <= 0x06017FFF)
@@ -51,7 +53,8 @@ namespace Emulator
                     wramBoard[address - 0x02000000] = value;
                 else if (address >= 0x03000000 && address <= 0x03007FFF)
                     wramChip[address - 0x03000000] = value;
-                // I/O
+                else if (address >= 0x04000000 && address <= 0x040003FE)
+                    ioRegisters[address - 0x04000000] = value;
                 else if (address >= 0x05000000 && address <= 0x050003FF)
                     palette[address - 0x05000000] = value;
                 else if (address >= 0x06000000 && address <= 0x06017FFF)
@@ -59,14 +62,14 @@ namespace Emulator
                 else if (address >= 0x76000000 && address <= 0x070003FF)
                     attributes[address - 0x07000000] = value;
                 // external memory
-                if (address >= 0x08000000 && rom != null && address <= 0x08000000 + rom.Length)
+                else if (address >= 0x08000000 && rom != null && address <= 0x08000000 + rom.Length)
                     throw new InvalidOperationException("Cannot write to ROM");
-                if (address >= 0x0A000000 && rom != null && address <= 0x0A000000 + rom.Length)
+                else if (address >= 0x0A000000 && rom != null && address <= 0x0A000000 + rom.Length)
                     throw new InvalidOperationException("Cannot write to ROM");
-                if (address >= 0x0C000000 && rom != null && address <= 0x0C000000 + rom.Length)
+                else if (address >= 0x0C000000 && rom != null && address <= 0x0C000000 + rom.Length)
                     throw new InvalidOperationException("Cannot write to ROM");
-
-                throw new NotImplementedException();
+                else
+                    throw new NotImplementedException();
             }
         }
 
@@ -77,6 +80,13 @@ namespace Emulator
             var byte3 = (uint)this[address + 2] << 16;
             var byte4 = (uint)this[address + 3] << 24;
             return byte1 + byte2 + byte3 + byte4;
+        }
+
+        public ushort Get16(uint address)
+        {
+            var byte1 = (byte)this[address];
+            var byte2 = (byte)(this[address + 1] << 8);
+            return (ushort)(byte1 + byte2);
         }
 
         public void Set32(uint address, uint value)
