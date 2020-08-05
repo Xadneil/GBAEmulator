@@ -66,7 +66,7 @@ namespace Emulator
             get
             {
                 if (index == 15)
-                    return registers[15] + 8;
+                    return registers[15] + (Thumb ? 4u : 8);
                 return registers[registerBankMap[index, ModeIndex]];
             }
             set => registers[registerBankMap[index, ModeIndex]] = value;
