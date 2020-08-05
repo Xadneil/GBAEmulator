@@ -130,7 +130,7 @@ namespace Emulator
 
         private void ArmLoadStoreImmediateOffset(uint instruction)
         {
-            if (!ConditionPassed(instruction))
+            if (!ArmConditionPassed(instruction))
                 return;
 
             var I = (instruction & (1 << 25)) != 0;
@@ -193,7 +193,7 @@ namespace Emulator
                     address = Registers[Rn] - (instruction & 0b111111111111);
                 }
 
-                if (W && ConditionPassed(instruction))
+                if (W && ArmConditionPassed(instruction))
                 {
                     Registers[Rn] = address;
                 }
@@ -212,7 +212,7 @@ namespace Emulator
                     address = Registers[Rn] - Registers[Rm];
                 }
 
-                if (W && ConditionPassed(instruction))
+                if (W && ArmConditionPassed(instruction))
                 {
                     Registers[Rn] = address;
                 }
@@ -264,7 +264,7 @@ namespace Emulator
                 else
                     address = Registers[Rn] - index;
 
-                if (W && ConditionPassed(instruction))
+                if (W && ArmConditionPassed(instruction))
                 {
                     Registers[Rn] = address;
                 }
@@ -273,7 +273,7 @@ namespace Emulator
             else if (!I && !P && !W)
             {
                 uint address = Registers[Rn];
-                if (ConditionPassed(instruction))
+                if (ArmConditionPassed(instruction))
                 {
                     if (U)
                         Registers[Rn] += instruction & 0xFFF;
@@ -286,7 +286,7 @@ namespace Emulator
             {
                 uint address = Registers[Rn];
                 var Rm = instruction & 0xF;
-                if (ConditionPassed(instruction))
+                if (ArmConditionPassed(instruction))
                 {
                     if (U)
                         Registers[Rn] += Registers[Rm];
@@ -348,7 +348,7 @@ namespace Emulator
 
         private void ArmDataProcessing(uint instruction)
         {
-            if (!ConditionPassed(instruction))
+            if (!ArmConditionPassed(instruction))
                 return;
             uint I = instruction & (1 << 25);
             uint opcode = (instruction & 0x01E00000) >> 21;
@@ -359,7 +359,8 @@ namespace Emulator
                 case 4:
                 {
                     var (shifter_operand, c) = ShifterOperand(instruction);
-                    Registers[Rd] = Registers[Rn] + shifter_operand;
+                    var oldRn = Registers[Rn];
+                    Registers[Rd] = oldRn + shifter_operand;
                     if (S != 0 && Rd == 15)
                     {
                         if (Registers.CurrentModeHasSPSR)
@@ -371,9 +372,9 @@ namespace Emulator
                     {
                         Registers.N = (Registers[Rd] & (1 << 31)) != 0;
                         Registers.Z = Registers[Rd] == 0;
-                        Registers.C = ((Registers[Rn] ^ shifter_operand) >= 0) & ((Registers[Rn] ^ Registers[Rd]) < 0);
-                        Registers.V = (Registers[Rn] & (1 << 31)) == (shifter_operand & (1 << 31)) &&
-                                      (Registers[Rn] & (1 << 31)) != (Registers[Rd] & (1 << 31));
+                        Registers.C = ((oldRn ^ shifter_operand) >= 0) & ((oldRn ^ Registers[Rd]) < 0);
+                        Registers.V = (oldRn & (1 << 31)) == (shifter_operand & (1 << 31)) &&
+                                      (oldRn & (1 << 31)) != (Registers[Rd] & (1 << 31));
                     }
                     break;
                 }
@@ -446,13 +447,12 @@ namespace Emulator
 
         private void ArmControlDspExtension(uint instruction)
         {
-            if (!ConditionPassed(instruction))
+            if (!ArmConditionPassed(instruction))
                 return;
             if ((instruction & (1 << 25)) != 0)
             {
                 // move immediate to status register
                 throw new NotImplementedException();
-                return;
             }
             var opcode = (instruction & (0b1111 << 4)) >> 4;
             switch (opcode) {
@@ -543,7 +543,7 @@ namespace Emulator
 
         private void ArmBranch(uint instruction)
         {
-            if (!ConditionPassed(instruction))
+            if (!ArmConditionPassed(instruction))
                 return;
             uint L = instruction & (1 << 24);
             if (L != 0)
@@ -555,28 +555,10 @@ namespace Emulator
             incrementPC = false;
         }
 
-        private bool ConditionPassed(uint instruction)
+        private bool ArmConditionPassed(uint instruction)
         {
             var condition = (instruction & (0xF << 28)) >> 28;
-            switch (condition)
-            {
-                case 0: return Registers.Z;
-                case 1: return !Registers.Z;
-                case 2: return Registers.C;
-                case 3: return !Registers.C;
-                case 4: return Registers.N;
-                case 5: return !Registers.N;
-                case 6: return Registers.V;
-                case 7: return !Registers.V;
-                case 8: return Registers.C && !Registers.Z;
-                case 9: return !Registers.C && Registers.Z;
-                case 10: return Registers.N == Registers.V;
-                case 11: return Registers.N != Registers.V;
-                case 12: return !Registers.Z && Registers.N == Registers.V;
-                case 13: return Registers.Z || Registers.N != Registers.V;
-                case 14: return true;
-                default: throw new InvalidOperationException();
-            }
+            return ConditionPassed(condition);
         }
 
         private (uint, bool) ShifterOperand(uint instruction)
@@ -743,49 +725,50 @@ namespace Emulator
         #region Thumb
         private void ExecuteThumbInstruction()
         {
-            uint instruction = Memory.Get16(PC);
+            uint instruction = Memory.Get16(PC & 0xFFFFFFFE); // zero out LSB
             if ((instruction & (0b111 << 13)) == 0 && (instruction & (0b11 << 11)) != (0b11 << 11))
             {
                 // Shift by immediate
-                throw new NotImplementedException();
+                ThumbDataProcessing(instruction);
             }
             else if ((instruction & (0b111111 << 10)) == (0b000110 << 10))
             {
                 // Add/subtract register
-                throw new NotImplementedException();
+                ThumbDataProcessing(instruction);
             }
             else if ((instruction & (0b111111 << 10)) == (0b000111 << 10))
             {
                 // Add/subtract immediate
-                throw new NotImplementedException();
+                ThumbDataProcessing(instruction);
             }
             else if ((instruction & (0b111 << 13)) == (0b001 << 13))
             {
                 // Add/subtract/compare/move immediate
-                throw new NotImplementedException();
+                ThumbDataProcessing(instruction);
             }
             else if ((instruction & (0b111111 << 10)) == (0b010000 << 10))
             {
                 // Data processing register
-                throw new NotImplementedException();
+                ThumbDataProcessing(instruction);
             }
             else if ((instruction & (0b111111 << 10)) == (0b010001 << 10) && (instruction & (0b11 << 8)) != (0b11 << 8))
             {
                 // Special data processing
-                throw new NotImplementedException();
+                ThumbDataProcessing(instruction);
             }
             else if ((instruction & (0b11111111 << 8)) == (0b01000111 << 8))
             {
-                // Branch/exchange instruction set
-                throw new NotImplementedException();
+                // Branch/exchange instruction set (BX)
+                var Rm = (instruction & (0xF << 3)) >> 3;
+                Registers.Thumb = (Registers[Rm] & 1) != 0;
+                PC = Registers[Rm] & 0xFFFFFFFE;
             }
             else if ((instruction & (0b11111 << 11)) == (0b01001 << 11))
             {
                 // LDR (3)
                 var Rd = (instruction & (0b111 << 8)) >> 8;
                 var immed_8 = instruction & 0xFF;
-                //TODO is this the real PC or offsetted?
-                var address = (PC & 0xFFFFFFFC) + (immed_8 * 4);
+                var address = ((PC + 4) & 0xFFFFFFFC) + (immed_8 * 4);
                 Registers[Rd] = Memory.Get32(address);
             }
             else if ((instruction & (0b1111 << 12)) == (0b0101 << 12))
@@ -821,12 +804,12 @@ namespace Emulator
             else if ((instruction & (0b1111 << 12)) == (0b1100 << 12))
             {
                 // Load/store multiple
-                throw new NotImplementedException();
+                ThumbLoadStoreMultiple(instruction);
             }
             else if ((instruction & (0b1111 << 12)) == (0b1101 << 12))
             {
                 // Conditional branch
-                throw new NotImplementedException();
+                ThumbConditionalBranch(instruction);
             }
             else if ((instruction & (0xFFFF << 8)) == (0b11011110 << 8))
             {
@@ -852,7 +835,14 @@ namespace Emulator
             else if ((instruction & (0b11111 << 11)) == (0b11110 << 11))
             {
                 // BL/BLX prefix
-                throw new NotImplementedException();
+                var offset = (instruction & 0x7FF) << 12;
+                if ((instruction & (1 << 10)) != 0)
+                    offset |= 0xFF800000; // sign extend
+                var lowInstr = (uint)Memory.Get16(PC + 2);
+                offset += (lowInstr & 0x7FF) << 1;
+                Registers.LR = (PC + 4) | 1; // set LSB for POP PC
+                PC = (uint)(PC + 4 + (int)offset);
+                incrementPC = false;
             }
             else if ((instruction & (0b11111 << 11)) == (0b11111 << 11))
             {
@@ -868,7 +858,245 @@ namespace Emulator
             else
                 incrementPC = true;
         }
+
+        private void ThumbConditionalBranch(uint instruction)
+        {
+            var condition = (instruction & (0xF << 8)) >> 8;
+            if (ConditionPassed(condition))
+            {
+                var delta = (sbyte)((instruction & 0xFF) << 1);
+                PC = (uint)(PC + delta + 4);
+                incrementPC = false;
+            }
+        }
+
+        private void ThumbDataProcessing(uint instruction)
+        {
+            if ((instruction & (0b111111 << 10)) == (0b000110 << 10))
+            {
+                // Format 1
+                var op_1 = instruction & (1 << 9);
+                var Rm = (instruction & (0b111 << 6)) >> 6;
+                var Rn = (instruction & (0b111 << 3)) >> 3;
+                var Rd = instruction & 0b111;
+                var oldRn = Registers[Rn];
+                var oldRm = Registers[Rm];
+                if (op_1 == 0)
+                {
+                    // ADD (3)
+                    Registers[Rd] = oldRn + oldRm;
+                    Registers.N = (Registers[Rd] & (1 << 31)) != 0;
+                    Registers.Z = Registers[Rd] == 0;
+                    Registers.C = ((ulong)oldRn) + ((ulong)oldRm) > uint.MaxValue;;
+                    Registers.V = (oldRn & (1 << 31)) == (oldRm & (1 << 31)) &&
+                                  (oldRn & (1 << 31)) != (Registers[Rd] & (1 << 31));
+                }
+                else
+                {
+                    // SUB (3)
+                    Registers[Rd] = oldRn - oldRm;
+                    Registers.N = (Registers[Rd] & (1 << 31)) != 0;
+                    Registers.Z = Registers[Rd] == 0;
+                    Registers.C = oldRm > oldRn;
+                    Registers.V = (oldRn & (1 << 31)) != (oldRm & (1 << 31)) &&
+                                  (oldRn & (1 << 31)) != (Registers[Rd] & (1 << 31));
+                }
+            }
+            else if ((instruction & (0b111111 << 10)) == (0b000111 << 10))
+            {
+                // Format 2
+                var op_2 = instruction & (1 << 9);
+                var immediate = (instruction & (0b111 << 6)) >> 6;
+                var Rn = (instruction & (0b111 << 3)) >> 3;
+                var oldRn = Registers[Rn];
+                var Rd = instruction & 0b111;
+                if (op_2 == 0)
+                {
+                    // ADD (1)
+                    Registers[Rd] = oldRn + immediate;
+                    Registers.N = (Registers[Rd] & (1 << 31)) != 0;
+                    Registers.Z = Registers[Rd] == 0;
+                    Registers.C = ((ulong)oldRn) + ((ulong)immediate) > uint.MaxValue;
+                    Registers.V = (oldRn & (1 << 31)) == (immediate & (1 << 31)) &&
+                                  (oldRn & (1 << 31)) != (Registers[Rd] & (1 << 31));
+                }
+                else
+                {
+                    throw new InvalidOperationException();
+                }
+            }
+            else if ((instruction & (0b111 << 13)) == (0b001 << 13))
+            {
+                // Format 3
+                var op_3 = (instruction & (0b11 << 11)) >> 11;
+                uint Rd, Rn;
+                Rd = Rn = (instruction & (0b111 << 8)) >> 8;
+                var immediate = instruction & 0xFF;
+                switch (op_3)
+                {
+                    case 0:
+                    {
+                        Registers[Rd] = immediate;
+                        Registers.N = false; // only unsigned values from 0 to 255 can be assigned in this instruction
+                        Registers.Z = immediate == 0;
+                        // C and V flags are unaffected.
+                        break;
+                    }
+                    case 3:
+                    {
+                        // SUB (2)
+                        var oldRd = Registers[Rd];
+                        Registers[Rd] = oldRd - immediate;
+                        Registers.N = (Registers[Rd] & (1 << 31)) != 0;
+                        Registers.Z = Registers[Rd] == 0;
+                        Registers.C = oldRd < immediate;
+                        Registers.V = (oldRd & (1 << 31)) != (immediate & (1 << 31)) &&
+                                      (oldRd & (1 << 31)) != (Registers[Rd] & (1 << 31));
+                        break;
+                    }
+                    default: throw new InvalidOperationException();
+                }
+            }
+            else if ((instruction & (0b111 << 13)) == 0)
+            {
+                // Format 4
+                var op_4 = (instruction & (0b11 << 11)) >> 11;
+                var shift_immediate = (int)((instruction & (0b11111 << 6)) >> 6);
+                var Rm = (instruction & (0b111 << 3)) >> 3;
+                var Rd = instruction & 0b111;
+                switch (op_4)
+                {
+                    case 0:
+                    {
+                        if (shift_immediate == 0)
+                            Registers[Rd] = Registers[Rm];
+                        else
+                        {
+                            Registers.C = (Registers[Rm] & (1 << (32 - shift_immediate))) != 0;
+                            Registers[Rd] = Registers[Rm] << shift_immediate;
+                        }
+                        Registers.N = (Registers[Rd] & (1 << 31)) != 0;
+                        Registers.Z = Registers[Rd] == 0;
+                        // V Flag is unaffected
+                        break;
+                    }
+                    default: throw new InvalidOperationException();
+                }
+            }
+            else if ((instruction & (0b111111 << 10)) == (0b010000 << 10))
+            {
+                // Format 5
+                var op_5 = (instruction & (0b1111 << 6)) >> 6;
+                uint Rm, Rs;
+                Rm = Rs = (instruction & (0b111 << 3)) >> 3;
+                uint Rd, Rn;
+                Rd = Rn = instruction & 0b111;
+                switch (op_5)
+                {
+                    case 0b1110:
+                    {
+                        Registers[Rd] = Registers[Rd] & ~Registers[Rm];
+                        Registers.N = (Registers[Rd] & (1 << 31)) != 0;
+                        Registers.Z = Registers[Rd] == 0;
+                        // C and V flags are unaffected
+                        break;
+                    }
+                    default: throw new InvalidOperationException();
+                }
+            }
+            else if ((instruction & (0b1111 << 12)) == (0b1010 << 12))
+            {
+                // Format 6
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0xFF << 8)) == (0b10110000 << 8))
+            {
+                // Format 7
+                throw new NotImplementedException();
+            }
+            else if ((instruction & (0b111111 << 10)) == (0b010001 << 10))
+            {
+                // Format 8
+                var opcode = (instruction & (0b11 << 8)) >> 8;
+                var H1 = (instruction & (1 << 7)) >> 4;
+                var H2 = (instruction & (1 << 6)) >> 3;
+                var Rm = ((instruction & (0b111 << 3)) >> 3) | H2;
+                var Rd = (instruction & 0b111) | H1;
+                switch (opcode)
+                {
+                    case 2:
+                    {
+                        Registers[Rd] = Registers[Rm];
+                        break;
+                    }
+                    default: throw new InvalidOperationException();
+                }
+            }
+            else
+                throw new InvalidOperationException();
+        }
+
+        private void ThumbLoadStoreMultiple(uint instruction)
+        {
+            if ((instruction & (0b1111 << 12)) == (0b1100 << 12))
+            {
+                // Format 1
+                var L = instruction & (1 << 11);
+                var Rn = (instruction & (0b111 << 8)) >> 8;
+                var register_list = instruction & 0xFF;
+
+                uint registerCount = 0;
+                var start_address = Registers[Rn];
+                
+                var address = start_address;
+                bool setRnAddress = true;
+                for (uint i = 0; i < 7; i++)
+                {
+                    if ((register_list & (1 << (int)i)) == 0)
+                        continue;
+                    registerCount++;
+                    if (L == 0)
+                        //STMIA
+                        Memory.Set32(address, Registers[i]);
+                    else
+                        //LDMIA
+                        Registers[i] = Memory.Get32(address);
+                    address += 4;
+                    if (i == Rn && L != 0)
+                        setRnAddress = false;
+                }
+                var end_address = start_address + (registerCount * 4) - 4;
+                System.Diagnostics.Debug.Assert(end_address == address - 4);
+                if (setRnAddress)
+                    Registers[Rn] += registerCount * 4;
+            }
+            else
+                throw new InvalidOperationException();
+        }
         #endregion
+
+        private bool ConditionPassed(long condition)
+        {
+            switch (condition)
+            {
+                case 0: return Registers.Z;
+                case 1: return !Registers.Z;
+                case 2: return Registers.C;
+                case 3: return !Registers.C;
+                case 4: return Registers.N;
+                case 5: return !Registers.N;
+                case 6: return Registers.V;
+                case 7: return !Registers.V;
+                case 8: return Registers.C && !Registers.Z;
+                case 9: return !Registers.C && Registers.Z;
+                case 10: return Registers.N == Registers.V;
+                case 11: return Registers.N != Registers.V;
+                case 12: return !Registers.Z && Registers.N == Registers.V;
+                case 13: return Registers.Z || Registers.N != Registers.V;
+                case 14: return true;
+                default: throw new InvalidOperationException();
+            }
+        }
 
         public void Run()
         {
