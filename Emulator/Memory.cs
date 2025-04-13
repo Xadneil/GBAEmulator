@@ -1,7 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Runtime.CompilerServices;
-using System.Text;
 
 namespace Emulator
 {
@@ -59,7 +56,7 @@ namespace Emulator
                     palette[address - 0x05000000] = value;
                 else if (address >= 0x06000000 && address <= 0x06017FFF)
                     vram[address - 0x06000000] = value;
-                else if (address >= 0x76000000 && address <= 0x070003FF)
+                else if (address >= 0x70000000 && address <= 0x070003FF)
                     attributes[address - 0x07000000] = value;
                 // external memory
                 else if (address >= 0x08000000 && rom != null && address <= 0x08000000 + rom.Length)
