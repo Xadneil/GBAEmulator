@@ -1082,25 +1082,25 @@ namespace Emulator
 
         private bool ConditionPassed(long condition)
         {
-            switch (condition)
+            return condition switch
             {
-                case 0: return Registers.Z;
-                case 1: return !Registers.Z;
-                case 2: return Registers.C;
-                case 3: return !Registers.C;
-                case 4: return Registers.N;
-                case 5: return !Registers.N;
-                case 6: return Registers.V;
-                case 7: return !Registers.V;
-                case 8: return Registers.C && !Registers.Z;
-                case 9: return !Registers.C && Registers.Z;
-                case 10: return Registers.N == Registers.V;
-                case 11: return Registers.N != Registers.V;
-                case 12: return !Registers.Z && Registers.N == Registers.V;
-                case 13: return Registers.Z || Registers.N != Registers.V;
-                case 14: return true;
-                default: throw new InvalidOperationException();
-            }
+                0 => Registers.Z,
+                1 => !Registers.Z,
+                2 => Registers.C,
+                3 => !Registers.C,
+                4 => Registers.N,
+                5 => !Registers.N,
+                6 => Registers.V,
+                7 => !Registers.V,
+                8 => Registers.C && !Registers.Z,
+                9 => !Registers.C && Registers.Z,
+                10 => Registers.N == Registers.V,
+                11 => Registers.N != Registers.V,
+                12 => !Registers.Z && Registers.N == Registers.V,
+                13 => Registers.Z || Registers.N != Registers.V,
+                14 => true,
+                _ => throw new InvalidOperationException(),
+            };
         }
 
         public void Run()
