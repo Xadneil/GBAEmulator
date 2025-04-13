@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 
 namespace Emulator
 {
@@ -355,29 +354,30 @@ namespace Emulator
             uint S = instruction & (1 << 20);
             uint Rn = (instruction & 0x000F0000) >> 16;
             uint Rd = (instruction & 0x0000F000) >> 12;
-            switch (opcode) {
+            switch (opcode)
+            {
                 case 4:
-                {
-                    var (shifter_operand, c) = ShifterOperand(instruction);
-                    var oldRn = Registers[Rn];
-                    Registers[Rd] = oldRn + shifter_operand;
-                    if (S != 0 && Rd == 15)
                     {
-                        if (Registers.CurrentModeHasSPSR)
-                            Registers.CPSR = Registers.SPSR;
-                        else
-                            throw new InvalidOperationException("Unpredicatble.");
+                        var (shifter_operand, c) = ShifterOperand(instruction);
+                        var oldRn = Registers[Rn];
+                        Registers[Rd] = oldRn + shifter_operand;
+                        if (S != 0 && Rd == 15)
+                        {
+                            if (Registers.CurrentModeHasSPSR)
+                                Registers.CPSR = Registers.SPSR;
+                            else
+                                throw new InvalidOperationException("Unpredicatble.");
+                        }
+                        else if (S != 0)
+                        {
+                            Registers.N = (Registers[Rd] & (1 << 31)) != 0;
+                            Registers.Z = Registers[Rd] == 0;
+                            Registers.C = ((oldRn ^ shifter_operand) >= 0) & ((oldRn ^ Registers[Rd]) < 0);
+                            Registers.V = (oldRn & (1 << 31)) == (shifter_operand & (1 << 31)) &&
+                                          (oldRn & (1 << 31)) != (Registers[Rd] & (1 << 31));
+                        }
+                        break;
                     }
-                    else if (S != 0)
-                    {
-                        Registers.N = (Registers[Rd] & (1 << 31)) != 0;
-                        Registers.Z = Registers[Rd] == 0;
-                        Registers.C = ((oldRn ^ shifter_operand) >= 0) & ((oldRn ^ Registers[Rd]) < 0);
-                        Registers.V = (oldRn & (1 << 31)) == (shifter_operand & (1 << 31)) &&
-                                      (oldRn & (1 << 31)) != (Registers[Rd] & (1 << 31));
-                    }
-                    break;
-                }
                 case 8:
                     if (S == 0)
                     {
@@ -407,24 +407,24 @@ namespace Emulator
                     }
                     throw new NotImplementedException();
                 case 13:
-                {
-                    var (shifter_operand, c) = ShifterOperand(instruction);
-                    Registers[Rd] = shifter_operand;
-                    if (S != 0 && Rd == 15)
                     {
-                        if (Registers.CurrentModeHasSPSR)
-                            Registers.CPSR = Registers.SPSR;
-                        else
-                            throw new InvalidOperationException("Unpredicatble.");
+                        var (shifter_operand, c) = ShifterOperand(instruction);
+                        Registers[Rd] = shifter_operand;
+                        if (S != 0 && Rd == 15)
+                        {
+                            if (Registers.CurrentModeHasSPSR)
+                                Registers.CPSR = Registers.SPSR;
+                            else
+                                throw new InvalidOperationException("Unpredicatble.");
+                        }
+                        else if (S != 0)
+                        {
+                            Registers.N = Registers[Rd] > 0x7FFFFFFF;
+                            Registers.Z = Registers[Rd] == 0;
+                            Registers.C = c;
+                        }
+                        break;
                     }
-                    else if (S != 0)
-                    {
-                        Registers.N = Registers[Rd] > 0x7FFFFFFF;
-                        Registers.Z = Registers[Rd] == 0;
-                        Registers.C = c;
-                    }
-                    break;
-                }
                 default:
                     throw new NotImplementedException();
             }
@@ -455,56 +455,60 @@ namespace Emulator
                 throw new NotImplementedException();
             }
             var opcode = (instruction & (0b1111 << 4)) >> 4;
-            switch (opcode) {
+            switch (opcode)
+            {
                 case 0:
-                {
-                    var R = instruction & (1 << 22);
-                    var field_mask = (instruction & (0b1111 << 16)) >> 16;
-                    if ((instruction & (1 << 21)) == 0)
                     {
-                        // move status register to register
-                        throw new NotImplementedException();
-                    }
-                    else
-                    {
-                        // move register to status register
-                        var Rm = instruction & 0b1111;
-                        const uint UnallocMask = 0x0FFFFF00;
-                        const uint UserMask = 0xF0000000;
-                        const uint PrivMask = 0x0000000F;
-                        const uint StateMask = 0x00000020;
-                        var operand = Registers[Rm];
-                        if ((operand & UnallocMask) != 0)
-                            throw new InvalidOperationException("Unpredictable. (attempt to set reserved bits)");
-                        var byte_mask =
-                            ((field_mask & 0b0001) != 0 ? 0x000000FFu : 0) |
-                            ((field_mask & 0b0010) != 0 ? 0x0000FF00u : 0) |
-                            ((field_mask & 0b0100) != 0 ? 0x00FF0000u : 0) |
-                            ((field_mask & 0b1000) != 0 ? 0xFF000000u : 0);
-                        uint mask;
-                        if (R == 0) {
-                            if (Registers.InAPrivilegedMode)
-                            {
-                                if ((operand & StateMask) != 0)
-                                    throw new InvalidOperationException("Unpredicatble. (attempt to set non-ARM execution state)");
-                                else
-                                    mask = byte_mask & (UserMask | PrivMask);     
-                            }
-                            else
-                                mask = byte_mask & UserMask;
-                            Registers.CPSR = (Registers.CPSR & ~mask) | (operand & mask);
-                        } else {
-                            if (Registers.CurrentModeHasSPSR)
-                            {
-                                mask = byte_mask & (UserMask | PrivMask | StateMask);
-                                Registers.SPSR = (Registers.SPSR & ~mask) | (operand & mask);
-                            }
-                            else
-                                throw new InvalidOperationException("Unpredicatble. (attempt to set SPSR where the current mode does not have one)");
+                        var R = instruction & (1 << 22);
+                        var field_mask = (instruction & (0b1111 << 16)) >> 16;
+                        if ((instruction & (1 << 21)) == 0)
+                        {
+                            // move status register to register
+                            throw new NotImplementedException();
                         }
-                        break;
+                        else
+                        {
+                            // move register to status register
+                            var Rm = instruction & 0b1111;
+                            const uint UnallocMask = 0x0FFFFF00;
+                            const uint UserMask = 0xF0000000;
+                            const uint PrivMask = 0x0000000F;
+                            const uint StateMask = 0x00000020;
+                            var operand = Registers[Rm];
+                            if ((operand & UnallocMask) != 0)
+                                throw new InvalidOperationException("Unpredictable. (attempt to set reserved bits)");
+                            var byte_mask =
+                                ((field_mask & 0b0001) != 0 ? 0x000000FFu : 0) |
+                                ((field_mask & 0b0010) != 0 ? 0x0000FF00u : 0) |
+                                ((field_mask & 0b0100) != 0 ? 0x00FF0000u : 0) |
+                                ((field_mask & 0b1000) != 0 ? 0xFF000000u : 0);
+                            uint mask;
+                            if (R == 0)
+                            {
+                                if (Registers.InAPrivilegedMode)
+                                {
+                                    if ((operand & StateMask) != 0)
+                                        throw new InvalidOperationException("Unpredicatble. (attempt to set non-ARM execution state)");
+                                    else
+                                        mask = byte_mask & (UserMask | PrivMask);
+                                }
+                                else
+                                    mask = byte_mask & UserMask;
+                                Registers.CPSR = (Registers.CPSR & ~mask) | (operand & mask);
+                            }
+                            else
+                            {
+                                if (Registers.CurrentModeHasSPSR)
+                                {
+                                    mask = byte_mask & (UserMask | PrivMask | StateMask);
+                                    Registers.SPSR = (Registers.SPSR & ~mask) | (operand & mask);
+                                }
+                                else
+                                    throw new InvalidOperationException("Unpredicatble. (attempt to set SPSR where the current mode does not have one)");
+                            }
+                            break;
+                        }
                     }
-                }
                 case 1:
                     if ((instruction & (1 << 22)) == 0)
                     {
@@ -533,7 +537,8 @@ namespace Emulator
                     // software breakpoint
                     throw new NotImplementedException();
                 default:
-                    if (opcode >= 8) {
+                    if (opcode >= 8)
+                    {
                         // signed multiplies (type 2)
                         throw new NotImplementedException();
                     }
@@ -887,7 +892,7 @@ namespace Emulator
                     Registers[Rd] = oldRn + oldRm;
                     Registers.N = (Registers[Rd] & (1 << 31)) != 0;
                     Registers.Z = Registers[Rd] == 0;
-                    Registers.C = ((ulong)oldRn) + ((ulong)oldRm) > uint.MaxValue;;
+                    Registers.C = ((ulong)oldRn) + ((ulong)oldRm) > uint.MaxValue;
                     Registers.V = (oldRn & (1 << 31)) == (oldRm & (1 << 31)) &&
                                   (oldRn & (1 << 31)) != (Registers[Rd] & (1 << 31));
                 }
@@ -935,25 +940,25 @@ namespace Emulator
                 switch (op_3)
                 {
                     case 0:
-                    {
-                        Registers[Rd] = immediate;
-                        Registers.N = false; // only unsigned values from 0 to 255 can be assigned in this instruction
-                        Registers.Z = immediate == 0;
-                        // C and V flags are unaffected.
-                        break;
-                    }
+                        {
+                            Registers[Rd] = immediate;
+                            Registers.N = false; // only unsigned values from 0 to 255 can be assigned in this instruction
+                            Registers.Z = immediate == 0;
+                            // C and V flags are unaffected.
+                            break;
+                        }
                     case 3:
-                    {
-                        // SUB (2)
-                        var oldRd = Registers[Rd];
-                        Registers[Rd] = oldRd - immediate;
-                        Registers.N = (Registers[Rd] & (1 << 31)) != 0;
-                        Registers.Z = Registers[Rd] == 0;
-                        Registers.C = oldRd < immediate;
-                        Registers.V = (oldRd & (1 << 31)) != (immediate & (1 << 31)) &&
-                                      (oldRd & (1 << 31)) != (Registers[Rd] & (1 << 31));
-                        break;
-                    }
+                        {
+                            // SUB (2)
+                            var oldRd = Registers[Rd];
+                            Registers[Rd] = oldRd - immediate;
+                            Registers.N = (Registers[Rd] & (1 << 31)) != 0;
+                            Registers.Z = Registers[Rd] == 0;
+                            Registers.C = oldRd < immediate;
+                            Registers.V = (oldRd & (1 << 31)) != (immediate & (1 << 31)) &&
+                                          (oldRd & (1 << 31)) != (Registers[Rd] & (1 << 31));
+                            break;
+                        }
                     default: throw new InvalidOperationException();
                 }
             }
@@ -967,19 +972,19 @@ namespace Emulator
                 switch (op_4)
                 {
                     case 0:
-                    {
-                        if (shift_immediate == 0)
-                            Registers[Rd] = Registers[Rm];
-                        else
                         {
-                            Registers.C = (Registers[Rm] & (1 << (32 - shift_immediate))) != 0;
-                            Registers[Rd] = Registers[Rm] << shift_immediate;
+                            if (shift_immediate == 0)
+                                Registers[Rd] = Registers[Rm];
+                            else
+                            {
+                                Registers.C = (Registers[Rm] & (1 << (32 - shift_immediate))) != 0;
+                                Registers[Rd] = Registers[Rm] << shift_immediate;
+                            }
+                            Registers.N = (Registers[Rd] & (1 << 31)) != 0;
+                            Registers.Z = Registers[Rd] == 0;
+                            // V Flag is unaffected
+                            break;
                         }
-                        Registers.N = (Registers[Rd] & (1 << 31)) != 0;
-                        Registers.Z = Registers[Rd] == 0;
-                        // V Flag is unaffected
-                        break;
-                    }
                     default: throw new InvalidOperationException();
                 }
             }
@@ -994,13 +999,13 @@ namespace Emulator
                 switch (op_5)
                 {
                     case 0b1110:
-                    {
-                        Registers[Rd] = Registers[Rd] & ~Registers[Rm];
-                        Registers.N = (Registers[Rd] & (1 << 31)) != 0;
-                        Registers.Z = Registers[Rd] == 0;
-                        // C and V flags are unaffected
-                        break;
-                    }
+                        {
+                            Registers[Rd] = Registers[Rd] & ~Registers[Rm];
+                            Registers.N = (Registers[Rd] & (1 << 31)) != 0;
+                            Registers.Z = Registers[Rd] == 0;
+                            // C and V flags are unaffected
+                            break;
+                        }
                     default: throw new InvalidOperationException();
                 }
             }
@@ -1025,10 +1030,10 @@ namespace Emulator
                 switch (opcode)
                 {
                     case 2:
-                    {
-                        Registers[Rd] = Registers[Rm];
-                        break;
-                    }
+                        {
+                            Registers[Rd] = Registers[Rm];
+                            break;
+                        }
                     default: throw new InvalidOperationException();
                 }
             }
@@ -1047,7 +1052,7 @@ namespace Emulator
 
                 uint registerCount = 0;
                 var start_address = Registers[Rn];
-                
+
                 var address = start_address;
                 bool setRnAddress = true;
                 for (uint i = 0; i < 7; i++)
