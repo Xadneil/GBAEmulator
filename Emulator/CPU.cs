@@ -767,6 +767,7 @@ namespace Emulator
                 var Rm = (instruction & (0xF << 3)) >> 3;
                 Registers.Thumb = (Registers[Rm] & 1) != 0;
                 PC = Registers[Rm] & 0xFFFFFFFE;
+                incrementPC = false;
             }
             else if ((instruction & (0b11111 << 11)) == (0b01001 << 11))
             {
