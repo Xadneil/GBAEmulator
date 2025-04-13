@@ -5,7 +5,7 @@ namespace Emulator.ConsoleApp
 {
     class Program
     {
-        static void Main(string[] args)
+        static void Main()
         {
             var image = File.ReadAllBytes(@"C:\Users\Daniel\Downloads\tonc-bin\bin\first.gba");
             var emu = new Emulator();
