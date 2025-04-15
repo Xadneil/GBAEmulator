@@ -88,6 +88,8 @@ namespace Emulator
 
         public void Set32(uint address, uint value)
         {
+            address &= ~(uint)0b11; // ignore bottom 2 bits of address for alignment
+
             byte byte1 = (byte)value; // truncates
             byte byte2 = (byte)(value >> 8);
             byte byte3 = (byte)(value >> 16);
@@ -96,6 +98,16 @@ namespace Emulator
             this[address + 1] = byte2;
             this[address + 2] = byte3;
             this[address + 3] = byte4;
+        }
+
+        public void Set16(uint address, uint value)
+        {
+            address &= ~(uint)1; // ignore bottom bit of address for alignment
+
+            byte byte1 = (byte)value; // truncates
+            byte byte2 = (byte)(value >> 8);
+            this[address] = byte1;
+            this[address + 1] = byte2;
         }
 
         public void LoadRom(byte[] rom)

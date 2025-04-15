@@ -1,6 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace Emulator
 {
@@ -72,10 +70,18 @@ namespace Emulator
             set => registers[registerBankMap[index, ModeIndex]] = value;
         }
 
+        public uint this[int index] { get => this[(uint)index]; set => this[(uint)index] = value; }
+
+        public uint SP
+        {
+            get => this[13];
+            set => this[13] = value;
+        }
+
         public uint LR
         {
-            get => registers[14];
-            set => registers[14] = value;
+            get => this[14];
+            set => this[14] = value;
         }
 
         public uint PC { get => registers[15]; set => registers[15] = value; }

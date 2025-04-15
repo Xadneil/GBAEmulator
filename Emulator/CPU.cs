@@ -785,12 +785,12 @@ namespace Emulator
             else if ((instruction & (0b111 << 13)) == (0b011 << 13))
             {
                 // Load/store word/byte immediate offset
-                throw new NotImplementedException();
+                ThumbLoadStoreImmediateOffset(instruction);
             }
             else if ((instruction & (0b1111 << 12)) == (0b1000 << 12))
             {
                 // Load/store halfword immediate offset
-                throw new NotImplementedException();
+                ThumbLoadStoreImmediateOffset(instruction);
             }
             else if ((instruction & (0b1111 << 12)) == (0b1001 << 12))
             {
@@ -805,7 +805,7 @@ namespace Emulator
             else if ((instruction & (0b1111 << 12)) == (0b1011 << 12))
             {
                 // Miscellaneous (Figure 6-2)
-                throw new NotImplementedException();
+                ThumbMiscellaneous(instruction);
             }
             else if ((instruction & (0b1111 << 12)) == (0b1100 << 12))
             {
@@ -829,8 +829,13 @@ namespace Emulator
             }
             else if ((instruction & (0b11111 << 11)) == (0b11100 << 11))
             {
-                // Unconditional branch
-                throw new NotImplementedException();
+                // Unconditional branch B (2)
+                var signed_immed_11 = instruction & 0b11111111111;
+                if ((signed_immed_11 & (1 << 10)) != 0)
+                    signed_immed_11 |= 0xFFFFF800;
+                signed_immed_11 <<= 1;
+                PC += 4 + signed_immed_11;
+                incrementPC = false;
             }
             else if ((instruction & (0b11111 << 11)) == (0b11101 << 11))
             {
@@ -863,6 +868,99 @@ namespace Emulator
                 PC += 2;
             else
                 incrementPC = true;
+        }
+
+        private void ThumbMiscellaneous(uint instruction)
+        {
+            if ((instruction & (0b11 << 9)) == (0b10 << 9))
+            {
+                //Push/Pop Register List
+                var L = (instruction & (1 << 11)) >> 11;
+                var R = (instruction & (1 << 8)) >> 8;
+                var register_list = instruction & 0xFF;
+
+                uint startAddress;
+                uint endAddress;
+                uint bitsInRegisterList = NumberOfSetBitsIn(register_list);
+                if (L == 1)
+                {
+                    startAddress = Registers.SP;
+                    endAddress = Registers.SP + 4 * (R + bitsInRegisterList);
+                }
+                else
+                {
+                    startAddress = Registers.SP - 4 * (R + bitsInRegisterList);
+                    endAddress = Registers.SP - 4;
+                }
+
+                var address = startAddress;
+                for (int i = 0; i <= 7; i++)
+                {
+                    if ((register_list & (1 << i)) != 0)
+                    {
+                        if (L == 1)
+                            Registers[i] = Memory.Get32(address);
+                        else
+                            Memory.Set32(address, Registers[i]);
+                        address += 4;
+                    }
+                }
+                if (R == 1)
+                {
+                    if (L == 1)
+                    {
+                        PC = Memory.Get32(address) & 0xFFFFFFFE;
+                        incrementPC = false;
+                    }
+                    else
+                        Memory.Set32(address, Registers.LR);
+                    address += 4;
+                }
+                if (L == 1)
+                {
+                    System.Diagnostics.Debug.Assert(endAddress == address);
+                    Registers.SP = endAddress;
+                }
+                else
+                {
+                    System.Diagnostics.Debug.Assert(endAddress == address - 4);
+                    Registers.SP = Registers.SP - 4 * (R + bitsInRegisterList);
+                }
+            }
+            else
+                throw new NotImplementedException();
+        }
+
+        private void ThumbLoadStoreImmediateOffset(uint instruction)
+        {
+            if ((instruction & (0b111 << 13)) == (0b011 << 13) ||
+                (instruction & (0b1111 << 12)) == (0b1000 << 12))
+            {
+                //Format 1
+                var opcode = (instruction & (0b11111 << 11)) >> 11;
+                var immed_5 = (instruction & (0b11111 << 6)) >> 6;
+                var Rn = (instruction & (0b111 << 3)) >> 3;
+                var Rd = instruction & 0b111;
+
+                switch (opcode)
+                {
+                    case 0b01100:
+                        //STR
+                        Memory.Set32(Registers[Rn] + (immed_5 * 4), Registers[Rd]);
+                        break;
+                    case 0b01101:
+                        //LDR
+                        Registers[Rd] = Memory.Get32(Registers[Rn] + (immed_5 * 4));
+                        break;
+                    case 0b10000:
+                        Memory.Set16(Registers[Rn] + (immed_5 * 2), Registers[Rd] & 0xFF);
+                        break;
+                    default:
+                        throw new NotImplementedException();
+                }
+            }
+            else
+                throw new NotImplementedException();
         }
 
         private void ThumbConditionalBranch(uint instruction)
@@ -948,6 +1046,30 @@ namespace Emulator
                             // C and V flags are unaffected.
                             break;
                         }
+                    case 1:
+                        {
+                            // CMP (1)
+                            var alu_out = Registers[Rn] - immediate;
+                            Registers.N = (alu_out & (1 << 31)) != 0;
+                            Registers.Z = alu_out == 0;
+                            Registers.C = Registers[Rn] < immediate;
+                            Registers.V = (Registers[Rn] & (1 << 31)) != (immediate & (1 << 31)) &&
+                                          (Registers[Rn] & (1 << 31)) != (alu_out & (1 << 31));
+                            break;
+                        }
+                    case 2:
+                        {
+                            // ADD (2)
+                            var oldRd = Registers[Rd];
+
+                            Registers[Rd] = oldRd + immediate;
+                            Registers.N = (Registers[Rd] & (1 << 31)) != 0;
+                            Registers.Z = Registers[Rd] == 0;
+                            Registers.C = ((ulong)oldRd) + ((ulong)immediate) > uint.MaxValue;
+                            Registers.V = (oldRd & (1 << 31)) == (immediate & (1 << 31)) &&
+                                          (oldRd & (1 << 31)) != (Registers[Rd] & (1 << 31));
+                            break;
+                        }
                     case 3:
                         {
                             // SUB (2)
@@ -986,6 +1108,46 @@ namespace Emulator
                             // V Flag is unaffected
                             break;
                         }
+                    case 1:
+                        {
+                            // LSR (1)
+                            if (shift_immediate == 0)
+                            {
+                                Registers.C = (Registers[Rm] & (1 << 31)) != 0;
+                                Registers[Rd] = 0;
+                            }
+                            else
+                            {
+                                Registers.C = (Registers[Rm] & (1 << (shift_immediate - 1))) != 0;
+                                Registers[Rd] = Registers[Rm] >> shift_immediate;
+                            }
+                            Registers.N = (Registers[Rd] & (1 << 31)) != 0;
+                            Registers.Z = Registers[Rd] == 0;
+                            // V Flag is unaffected
+                            break;
+                        }
+                    case 2:
+                        {
+                            // ASR (1)
+                            if (shift_immediate == 0)
+                            {
+                                long rmBit31 = Registers[Rm] & (1 << 31);
+                                Registers.C = rmBit31 != 0;
+                                if (rmBit31 == 0)
+                                    Registers[Rd] = 0;
+                                else
+                                    Registers[Rd] = 0xFFFFFFFF;
+                            }
+                            else
+                            {
+                                Registers.C = (Registers[Rm] & (1 << (shift_immediate - 1))) != 0;
+                                Registers[Rd] = (uint)(((int)Registers[Rm]) >> shift_immediate);
+                            }
+                            Registers.N = (Registers[Rd] & (1 << 31)) != 0;
+                            Registers.Z = Registers[Rd] == 0;
+                            // V Flag is unaffected
+                            break;
+                        }
                     default: throw new InvalidOperationException();
                 }
             }
@@ -999,6 +1161,17 @@ namespace Emulator
                 Rd = Rn = instruction & 0b111;
                 switch (op_5)
                 {
+                    case 0b1010:
+                        {
+                            // CMP (2)
+                            var alu_out = Registers[Rn] - Registers[Rm];
+                            Registers.N = (alu_out & (1 << 31)) != 0;
+                            Registers.Z = alu_out == 0;
+                            Registers.C = Registers[Rn] < Registers[Rm];
+                            Registers.V = (Registers[Rn] & (1 << 31)) != (Registers[Rm] & (1 << 31)) &&
+                                          (Registers[Rn] & (1 << 31)) != (alu_out & (1 << 31));
+                            break;
+                        }
                     case 0b1110:
                         {
                             Registers[Rd] = Registers[Rd] & ~Registers[Rm];
@@ -1110,6 +1283,15 @@ namespace Emulator
             {
                 ExecuteInstruction();
             }
+        }
+
+        private static uint NumberOfSetBitsIn(uint value)
+        {
+            uint count = 0;
+            for (int i = 0; i < 32; i++)
+                if ((value & (1 << i)) != 0)
+                    count++;
+            return count;
         }
     }
 }
